@@ -1,4 +1,3 @@
-name: radar-inovacao-ali360
 dependencies:
   - python=3.10
   - pip=23.0
