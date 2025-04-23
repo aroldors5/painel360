@@ -193,7 +193,7 @@ radar_data = data_integration.load_radar_data_from_excel('radar.xlsx')
 solutions_data = data_integration.load_solutions_from_excel('solucoes.xlsx')
     
     # Coleta soluções da web (opcional, pode ser comentado para desenvolvimento mais rápido)
-    try:
+try:
         web_solutions = data_integration.scrape_web_solutions()
     except Exception as e:
         st.warning(f"Não foi possível coletar soluções da web: {e}")
