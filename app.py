@@ -187,26 +187,27 @@ def display_adherence(score):
 def load_data():
     # Inicializa a integração de dados
     data_integration = DataIntegration()
-    
+
     # Carrega e processa os dados
-radar_data = data_integration.load_radar_data_from_excel('radar.xlsx')
-solutions_data = data_integration.load_solutions_from_excel('solucoes.xlsx')
-    
+    radar_data = data_integration.load_radar_data_from_excel('radar.xlsx')
+    solutions_data = data_integration.load_solutions_from_excel('solucoes.xlsx')
+
     # Coleta soluções da web (opcional, pode ser comentado para desenvolvimento mais rápido)
-try:
+    try:
         web_solutions = data_integration.scrape_web_solutions()
-except Exception as e:
+    except Exception as e:
         st.warning(f"Não foi possível coletar soluções da web: {e}")
         web_solutions = None
-    
+
     # Combina as soluções
     data_integration.combine_solutions()
-    
+
     # Pré-processa os dados
     radar_processed = data_integration.preprocess_radar_data()
     solutions_processed = data_integration.preprocess_solutions_data()
-    
+
     return radar_processed, solutions_processed, data_integration
+
 
 # Função para filtrar dados por regional
 def filter_data_by_regional(radar_data, solutions_data, selected_regional):
