@@ -465,7 +465,7 @@ def main():
             estagios = ["Todos"] + sorted([stage_mapping.get(x, f'Estágio {x}') for x in radar_data[stage_column].unique()])
         else:
             estagios_unicos = radar_data[stage_column].dropna().astype(str).unique().tolist()
-estagios = ["Todos"] + sorted(estagios_unicos)
+            estagios = ["Todos"] + sorted(estagios_unicos)
         selected_estagio = st.selectbox("Estágio do Diagnóstico", estagios)
     
     # Filtrar dados com base nos filtros selecionados
