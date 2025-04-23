@@ -9,10 +9,12 @@ import json
 from PIL import Image
 import base64
 from io import BytesIO
+import time
 
 # Importando os módulos personalizados
-from google_sheets_integration import GoogleSheetsIntegration
-from recommendation_system import RecommendationSystem
+from data_integration import DataIntegration
+from recommendation_system_updated import RecommendationSystem
+from sebrae_scraper import SebraeScraper
 
 # Configuração da página
 st.set_page_config(
@@ -27,11 +29,6 @@ ALI_BLUE = "#0077B5"
 ALI_LIGHT_BLUE = "#00A0DC"
 ALI_GRAY = "#CCCCCC"
 ALI_LIGHT_GRAY = "#F2F2F2"
-
-# Função para carregar a imagem do logo
-def get_logo_base64():
-    with open("logo_ali360.png", "rb") as img_file:
-        return base64.b64encode(img_file.read()).decode()
 
 # Função para aplicar o estilo personalizado
 def apply_custom_style():
@@ -117,6 +114,24 @@ def apply_custom_style():
             color: red;
             font-weight: bold;
         }}
+        .solution-link {{
+            color: {ALI_BLUE};
+            text-decoration: none;
+            border-bottom: 1px dotted {ALI_BLUE};
+        }}
+        .solution-link:hover {{
+            color: {ALI_LIGHT_BLUE};
+            border-bottom: 1px solid {ALI_LIGHT_BLUE};
+        }}
+        .source-tag {{
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.8rem;
+            margin-left: 10px;
+            background-color: {ALI_LIGHT_GRAY};
+            color: {ALI_BLUE};
+        }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -140,14 +155,23 @@ def display_metric_card(title, value, col):
         """, unsafe_allow_html=True)
 
 # Função para exibir recomendações em cards
-def display_recommendation_card(title, body, col):
-    with col:
-        st.markdown(f"""
-        <div class="recommendation-card">
-            <div class="recommendation-title">{title}</div>
-            <div class="recommendation-body">{body}</div>
-        </div>
-        """, unsafe_allow_html=True)
+def display_recommendation_card(title, body, source=None, link=None, col=None):
+    source_tag = f'<span class="source-tag">{source}</span>' if source else ''
+    link_html = f'<a href="{link}" target="_blank" class="solution-link">Ver detalhes</a>' if link else ''
+    
+    card_html = f"""
+    <div class="recommendation-card">
+        <div class="recommendation-title">{title} {source_tag}</div>
+        <div class="recommendation-body">{body}</div>
+        {link_html}
+    </div>
+    """
+    
+    if col:
+        with col:
+            st.markdown(card_html, unsafe_allow_html=True)
+    else:
+        st.markdown(card_html, unsafe_allow_html=True)
 
 # Função para exibir o nível de aderência
 def display_adherence(score):
@@ -158,50 +182,70 @@ def display_adherence(score):
     else:
         return f'<span class="adherence-low">{score}/10 (Baixa)</span>'
 
-# Função para carregar dados das planilhas
+# Função para carregar e processar dados
 @st.cache_data(ttl=600)
 def load_data():
-    # Simulação de dados para desenvolvimento
-    # Em produção, isso seria substituído pela integração real com Google Sheets
+    # Inicializa a integração de dados
+    data_integration = DataIntegration()
     
-    # Dados do Radar de Inovação ALI 360
-    radar_data = pd.DataFrame({
-        'Nome da empresa': ['Empresa A', 'Empresa B', 'Empresa C', 'Empresa D', 'Empresa E'],
-        'Cidade': ['Belo Horizonte', 'Uberlândia', 'Juiz de Fora', 'Belo Horizonte', 'Montes Claros'],
-        'Regional': ['Central', 'Triângulo', 'Zona da Mata', 'Central', 'Norte'],
-        'Setor': ['Comércio', 'Indústria', 'Serviços', 'Tecnologia', 'Agronegócio'],
-        'Desafio priorizado': ['Vendas', 'Produção', 'Marketing Digital', 'Inovação', 'Gestão'],
-        'Maturidade em inovação': ['Baixa', 'Média', 'Alta', 'Média', 'Baixa'],
-        'Necessidade específica': ['Atrair clientes', 'Otimizar processos', 'Presença digital', 'Novos produtos', 'Controle financeiro'],
-        'Estágio do diagnóstico': ['Nomear', 'Elaborar', 'Nomear', 'Elaborar', 'Nomear']
-    })
+    # Carrega e processa os dados
+    radar_data = data_integration.load_radar_data_from_excel('/home/ubuntu/upload/')
+    solutions_data = data_integration.load_solutions_from_excel('/home/ubuntu/upload/')
     
-    # Dados de Soluções Agendadas
-    solutions_data = pd.DataFrame({
-        'Nome da solução': ['Curso de Vendas', 'Consultoria em Processos', 'Workshop de Marketing Digital', 'Programa de Inovação', 'Gestão Financeira'],
-        'Modalidade': ['Curso', 'Consultoria', 'Workshop', 'Programa', 'Curso'],
-        'Cidade': ['Belo Horizonte', 'Uberlândia', 'Juiz de Fora', 'Belo Horizonte', 'Montes Claros'],
-        'Regional': ['Central', 'Triângulo', 'Zona da Mata', 'Central', 'Norte'],
-        'Tema': ['Vendas', 'Produção', 'Marketing', 'Inovação', 'Finanças'],
-        'Data prevista': ['2025-05-10', '2025-05-15', '2025-05-20', '2025-05-25', '2025-05-30'],
-        'Público-alvo': ['Comércio', 'Indústria', 'Serviços', 'Tecnologia', 'Agronegócio'],
-        'Consultor responsável': ['João Silva', 'Maria Oliveira', 'Pedro Santos', 'Ana Costa', 'Carlos Souza']
-    })
+    # Coleta soluções da web (opcional, pode ser comentado para desenvolvimento mais rápido)
+    try:
+        web_solutions = data_integration.scrape_web_solutions()
+    except Exception as e:
+        st.warning(f"Não foi possível coletar soluções da web: {e}")
+        web_solutions = None
     
-    return radar_data, solutions_data
+    # Combina as soluções
+    data_integration.combine_solutions()
+    
+    # Pré-processa os dados
+    radar_processed = data_integration.preprocess_radar_data()
+    solutions_processed = data_integration.preprocess_solutions_data()
+    
+    return radar_processed, solutions_processed, data_integration
 
 # Função para filtrar dados por regional
 def filter_data_by_regional(radar_data, solutions_data, selected_regional):
     if selected_regional == "Todas":
         return radar_data, solutions_data
     else:
-        filtered_radar = radar_data[radar_data['Regional'] == selected_regional]
-        filtered_solutions = solutions_data[solutions_data['Regional'] == selected_regional]
+        # Verifica qual coluna usar para filtrar
+        regional_column = 'Regional' if 'Regional' in radar_data.columns else 'Escritório Regional'
+        filtered_radar = radar_data[radar_data[regional_column] == selected_regional]
+        
+        # Para soluções, verifica se tem a coluna Regional
+        if 'Regional' in solutions_data.columns:
+            filtered_solutions = solutions_data[
+                (solutions_data['Regional'] == selected_regional) | 
+                (solutions_data['Regional'].isna())
+            ]
+        else:
+            filtered_solutions = solutions_data
+            
         return filtered_radar, filtered_solutions
 
 # Função para gerar gráfico de empresas por estágio
 def plot_companies_by_stage(radar_data):
-    stage_counts = radar_data['Estágio do diagnóstico'].value_counts().reset_index()
+    # Determina qual coluna usar
+    stage_column = 'Estágio do diagnóstico' if 'Estágio do diagnóstico' in radar_data.columns else 'Encontro'
+    
+    if stage_column == 'Encontro':
+        # Mapeia valores numéricos para nomes de estágios
+        stage_mapping = {
+            1: 'Nomear',
+            2: 'Elaborar',
+            3: 'Experimentar',
+            4: 'Evoluir',
+            5: 'Concluído'
+        }
+        radar_data['Estágio'] = radar_data[stage_column].map(lambda x: stage_mapping.get(x, f'Estágio {x}'))
+        stage_column = 'Estágio'
+    
+    stage_counts = radar_data[stage_column].value_counts().reset_index()
     stage_counts.columns = ['Estágio', 'Quantidade']
     
     fig = px.bar(
@@ -225,13 +269,17 @@ def plot_companies_by_stage(radar_data):
 
 # Função para gerar gráfico de desafios por região
 def plot_challenges_by_region(radar_data):
-    challenge_region = radar_data.groupby(['Regional', 'Desafio priorizado']).size().reset_index(name='count')
+    # Determina quais colunas usar
+    regional_column = 'Regional' if 'Regional' in radar_data.columns else 'Escritório Regional'
+    challenge_column = 'Desafio priorizado' if 'Desafio priorizado' in radar_data.columns else 'Categoria do Problema'
+    
+    challenge_region = radar_data.groupby([regional_column, challenge_column]).size().reset_index(name='count')
     
     fig = px.bar(
         challenge_region,
-        x='Regional',
+        x=regional_column,
         y='count',
-        color='Desafio priorizado',
+        color=challenge_column,
         title='Desafios Priorizados por Regional',
         barmode='group'
     )
@@ -247,7 +295,25 @@ def plot_challenges_by_region(radar_data):
 
 # Função para gerar gráfico de distribuição de maturidade
 def plot_maturity_distribution(radar_data):
-    maturity_counts = radar_data['Maturidade em inovação'].value_counts().reset_index()
+    # Determina qual coluna usar
+    maturity_column = 'Maturidade em inovação' if 'Maturidade em inovação' in radar_data.columns else 'Média diagnóstico inicial'
+    
+    # Se for média diagnóstico, categoriza em níveis
+    if maturity_column == 'Média diagnóstico inicial':
+        # Converte para numérico se possível
+        try:
+            radar_data['Maturidade'] = pd.to_numeric(radar_data[maturity_column], errors='coerce')
+            # Categoriza em níveis
+            bins = [0, 2, 3.5, 5]
+            labels = ['Baixa', 'Média', 'Alta']
+            radar_data['Maturidade Categorizada'] = pd.cut(radar_data['Maturidade'], bins=bins, labels=labels)
+            maturity_column = 'Maturidade Categorizada'
+        except:
+            # Se não conseguir converter, usa a coluna original
+            radar_data['Maturidade Categorizada'] = radar_data[maturity_column]
+            maturity_column = 'Maturidade Categorizada'
+    
+    maturity_counts = radar_data[maturity_column].value_counts().reset_index()
     maturity_counts.columns = ['Maturidade', 'Quantidade']
     
     fig = px.pie(
@@ -269,7 +335,19 @@ def plot_maturity_distribution(radar_data):
 
 # Função para gerar mapa de calor de desafios por setor
 def plot_challenges_by_sector(radar_data):
-    challenge_sector = pd.crosstab(radar_data['Setor'], radar_data['Desafio priorizado'])
+    # Determina qual coluna usar
+    challenge_column = 'Desafio priorizado' if 'Desafio priorizado' in radar_data.columns else 'Categoria do Problema'
+    
+    # Limita a 10 setores e 10 desafios mais comuns para melhor visualização
+    top_sectors = radar_data['Setor'].value_counts().nlargest(10).index
+    top_challenges = radar_data[challenge_column].value_counts().nlargest(10).index
+    
+    filtered_data = radar_data[
+        (radar_data['Setor'].isin(top_sectors)) & 
+        (radar_data[challenge_column].isin(top_challenges))
+    ]
+    
+    challenge_sector = pd.crosstab(filtered_data['Setor'], filtered_data[challenge_column])
     
     fig = px.imshow(
         challenge_sector,
@@ -289,6 +367,41 @@ def plot_challenges_by_sector(radar_data):
     
     return fig
 
+# Função para obter recomendações para uma empresa
+def get_recommendations_for_company(company_data, solutions_data, recommendation_system):
+    # Verifica se a chave da API está configurada
+    if not os.environ.get("OPENAI_API_KEY") and 'openai_api_key' in st.session_state:
+        recommendation_system.set_api_key(st.session_state['openai_api_key'])
+    
+    # Obtém recomendações
+    try:
+        recommendations = recommendation_system.get_recommendations(
+            company_data, 
+            solutions_data.to_dict('records')
+        )
+        return recommendations
+    except Exception as e:
+        st.error(f"Erro ao obter recomendações: {e}")
+        return []
+
+# Função para buscar soluções similares a um problema
+def search_similar_solutions(query, solutions_data, recommendation_system, max_results=5):
+    # Verifica se a chave da API está configurada
+    if not os.environ.get("OPENAI_API_KEY") and 'openai_api_key' in st.session_state:
+        recommendation_system.set_api_key(st.session_state['openai_api_key'])
+    
+    # Busca soluções similares
+    try:
+        similar_solutions = recommendation_system.find_similar_solutions(
+            query, 
+            solutions_data.to_dict('records'),
+            max_results=max_results
+        )
+        return similar_solutions
+    except Exception as e:
+        st.error(f"Erro ao buscar soluções similares: {e}")
+        return []
+
 # Função principal da aplicação
 def main():
     # Aplicar estilo personalizado
@@ -297,26 +410,91 @@ def main():
     # Exibir cabeçalho
     display_header()
     
-    # Carregar dados
-    radar_data, solutions_data = load_data()
+    # Verificar se a chave da API da OpenAI está configurada
+    if "openai_api_key" not in st.session_state:
+        st.session_state.openai_api_key = ""
+    
+    # Sidebar para configuração da API da OpenAI
+    with st.sidebar:
+        st.header("Configuração")
+        api_key = st.text_input("Chave da API da OpenAI", 
+                               value=st.session_state.openai_api_key,
+                               type="password",
+                               help="Necessária para o sistema de recomendação")
+        
+        if api_key:
+            st.session_state.openai_api_key = api_key
+            os.environ["OPENAI_API_KEY"] = api_key
+    
+    # Verificar se a chave da API está configurada
+    if not st.session_state.openai_api_key:
+        st.warning("Por favor, configure a chave da API da OpenAI no menu lateral para habilitar o sistema de recomendação.")
+    
+    # Inicializar o sistema de recomendação
+    recommendation_system = RecommendationSystem(api_key=st.session_state.openai_api_key)
+    
+    # Carregar dados com indicador de progresso
+    with st.spinner("Carregando dados..."):
+        radar_data, solutions_data, data_integration = load_data()
     
     # Sidebar para filtros
-    st.sidebar.header("Filtros")
+    with st.sidebar:
+        st.header("Filtros")
+        
+        # Lista de regionais para o filtro
+        regional_column = 'Regional' if 'Regional' in radar_data.columns else 'Escritório Regional'
+        regionais = ["Todas"] + sorted(radar_data[regional_column].unique().tolist())
+        selected_regional = st.selectbox("Regional", regionais)
+        
+        # Filtro de setor
+        setores = ["Todos"] + sorted(radar_data['Setor'].unique().tolist())
+        selected_setor = st.selectbox("Setor", setores)
+        
+        # Filtro de estágio
+        stage_column = 'Estágio do diagnóstico' if 'Estágio do diagnóstico' in radar_data.columns else 'Encontro'
+        if stage_column == 'Encontro':
+            # Mapeia valores numéricos para nomes de estágios
+            stage_mapping = {
+                1: 'Nomear',
+                2: 'Elaborar',
+                3: 'Experimentar',
+                4: 'Evoluir',
+                5: 'Concluído'
+            }
+            estagios = ["Todos"] + sorted([stage_mapping.get(x, f'Estágio {x}') for x in radar_data[stage_column].unique()])
+        else:
+            estagios = ["Todos"] + sorted(radar_data[stage_column].unique().tolist())
+        selected_estagio = st.selectbox("Estágio do Diagnóstico", estagios)
     
-    # Lista de regionais para o filtro
-    regionais = ["Todas"] + sorted(radar_data['Regional'].unique().tolist())
-    selected_regional = st.sidebar.selectbox("Regional", regionais)
-    
-    # Filtrar dados com base na regional selecionada
+    # Filtrar dados com base nos filtros selecionados
     filtered_radar, filtered_solutions = filter_data_by_regional(radar_data, solutions_data, selected_regional)
+    
+    # Aplicar filtro de setor
+    if selected_setor != "Todos":
+        filtered_radar = filtered_radar[filtered_radar['Setor'] == selected_setor]
+    
+    # Aplicar filtro de estágio
+    if selected_estagio != "Todos":
+        stage_column = 'Estágio do diagnóstico' if 'Estágio do diagnóstico' in radar_data.columns else 'Encontro'
+        if stage_column == 'Encontro':
+            # Mapeia nomes de estágios para valores numéricos
+            reverse_mapping = {v: k for k, v in stage_mapping.items()}
+            stage_value = reverse_mapping.get(selected_estagio)
+            if stage_value:
+                filtered_radar = filtered_radar[filtered_radar[stage_column] == stage_value]
+        else:
+            filtered_radar = filtered_radar[filtered_radar[stage_column] == selected_estagio]
     
     # Exibir métricas principais
     st.markdown("## Visão Geral")
     col1, col2, col3, col4 = st.columns(4)
     
+    # Determina qual coluna usar para desafios
+    challenge_column = 'Desafio priorizado' if 'Desafio priorizado' in radar_data.columns else 'Categoria do Problema'
+    
     display_metric_card("Empresas", len(filtered_radar), col1)
-    display_metric_card("Soluções Agendadas", len(filtered_solutions), col2)
-    display_metric_card("Desafios Únicos", filtered_radar['Desafio priorizado'].nunique(), col3)
+    display_metric_card("Soluções Disponíveis", len(filtered_solutions), col2)
+    display_metric_card("Desafios Únicos", filtered_radar[challenge_column].nunique(), col3)
     display_metric_card("Setores", filtered_radar['Setor'].nunique(), col4)
     
     # Abas para diferentes visualizações
@@ -346,8 +524,19 @@ def main():
         
         # Lista de empresas
         st.markdown("### Lista de Empresas")
+        
+        # Determina quais colunas exibir
+        company_column = 'Nome da empresa' if 'Nome da empresa' in filtered_radar.columns else 'Nome Empresa'
+        city_column = 'Cidade' if 'Cidade' in filtered_radar.columns else 'Município'
+        challenge_column = 'Desafio priorizado' if 'Desafio priorizado' in filtered_radar.columns else 'Categoria do Problema'
+        need_column = 'Necessidade específica' if 'Necessidade específica' in filtered_radar.columns else 'Descrição do Problema'
+        maturity_column = 'Maturidade em inovação' if 'Maturidade em inovação' in filtered_radar.columns else 'Média diagnóstico inicial'
+        stage_column = 'Estágio do diagnóstico' if 'Estágio do diagnóstico' in filtered_radar.columns else 'Encontro'
+        
+        display_columns = [company_column, city_column, 'Setor', challenge_column, maturity_column, stage_column]
+        
         st.dataframe(
-            filtered_radar[['Nome da empresa', 'Cidade', 'Setor', 'Desafio priorizado', 'Maturidade em inovação', 'Estágio do diagnóstico']],
+            filtered_radar[display_columns],
             use_container_width=True
         )
     
@@ -355,64 +544,141 @@ def main():
     with tab2:
         st.markdown("### Recomendação Inteligente de Soluções")
         
-        # Seleção de empresa
-        selected_company = st.selectbox(
-            "Selecione uma empresa para ver recomendações personalizadas:",
-            filtered_radar['Nome da empresa'].tolist()
+        # Opções de recomendação
+        recommendation_option = st.radio(
+            "Escolha uma opção:",
+            ["Recomendar para uma empresa específica", "Buscar soluções para um problema específico"]
         )
         
-        # Dados da empresa selecionada
-        company_data = filtered_radar[filtered_radar['Nome da empresa'] == selected_company].iloc[0].to_dict()
-        
-        # Exibir informações da empresa
-        st.markdown(f"#### Informações da Empresa: {selected_company}")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown(f"**Cidade/Regional:** {company_data['Cidade']}/{company_data['Regional']}")
-            st.markdown(f"**Setor:** {company_data['Setor']}")
-            st.markdown(f"**Maturidade em inovação:** {company_data['Maturidade em inovação']}")
-        
-        with col2:
-            st.markdown(f"**Desafio priorizado:** {company_data['Desafio priorizado']}")
-            st.markdown(f"**Necessidade específica:** {company_data['Necessidade específica']}")
-            st.markdown(f"**Estágio do diagnóstico:** {company_data['Estágio do diagnóstico']}")
-        
-        # Simulação de recomendações (em produção, seria chamada a API da OpenAI)
-        st.markdown("#### Soluções Recomendadas")
-        
-        # Recomendações simuladas
-        recommendations = [
-            {
-                "solution_name": "Curso de Estratégias de Vendas",
-                "justification": "Este curso aborda técnicas modernas de vendas e atração de clientes, alinhado com o desafio priorizado da empresa. O conteúdo é adaptado para empresas com baixa maturidade em inovação, oferecendo soluções práticas e de rápida implementação."
-            },
-            {
-                "solution_name": "Consultoria em Marketing Digital",
-                "justification": "A consultoria ajudará a empresa a estabelecer presença online efetiva, criando canais digitais para atrair novos clientes. Esta solução é especialmente relevante para o setor de comércio e complementa o desafio de vendas identificado."
-            },
-            {
-                "solution_name": "Workshop de Experiência do Cliente",
-                "justification": "Este workshop focado em melhorar a experiência do cliente pode ajudar a aumentar a retenção e fidelização, complementando as estratégias de atração. Aborda aspectos práticos que podem ser implementados mesmo com baixa maturidade em inovação."
-            }
-        ]
-        
-        # Exibir recomendações em cards
-        for rec in recommendations:
-            col1, _ = st.columns([3, 1])
-            display_recommendation_card(rec["solution_name"], rec["justification"], col1)
-        
-        # Soluções já agendadas
-        st.markdown("#### Soluções já agendadas na região")
-        
-        if not filtered_solutions.empty:
-            st.dataframe(
-                filtered_solutions[['Nome da solução', 'Modalidade', 'Tema', 'Data prevista']],
-                use_container_width=True
+        if recommendation_option == "Recomendar para uma empresa específica":
+            # Seleção de empresa
+            company_column = 'Nome da empresa' if 'Nome da empresa' in filtered_radar.columns else 'Nome Empresa'
+            selected_company = st.selectbox(
+                "Selecione uma empresa para ver recomendações personalizadas:",
+                filtered_radar[company_column].tolist()
             )
-        else:
-            st.info("Não há soluções agendadas para esta região.")
+            
+            # Dados da empresa selecionada
+            company_data = filtered_radar[filtered_radar[company_column] == selected_company].iloc[0].to_dict()
+            
+            # Exibir informações da empresa
+            st.markdown(f"#### Informações da Empresa: {selected_company}")
+            
+            col1, col2 = st.columns(2)
+            
+            # Determina quais colunas exibir
+            city_column = 'Cidade' if 'Cidade' in filtered_radar.columns else 'Município'
+            regional_column = 'Regional' if 'Regional' in filtered_radar.columns else 'Escritório Regional'
+            challenge_column = 'Desafio priorizado' if 'Desafio priorizado' in filtered_radar.columns else 'Categoria do Problema'
+            need_column = 'Necessidade específica' if 'Necessidade específica' in filtered_radar.columns else 'Descrição do Problema'
+            maturity_column = 'Maturidade em inovação' if 'Maturidade em inovação' in filtered_radar.columns else 'Média diagnóstico inicial'
+            stage_column = 'Estágio do diagnóstico' if 'Estágio do diagnóstico' in filtered_radar.columns else 'Encontro'
+            
+            with col1:
+                st.markdown(f"**Cidade/Regional:** {company_data.get(city_column, '')}/{company_data.get(regional_column, '')}")
+                st.markdown(f"**Setor:** {company_data.get('Setor', '')}")
+                st.markdown(f"**Maturidade em inovação:** {company_data.get(maturity_column, '')}")
+            
+            with col2:
+                st.markdown(f"**Desafio priorizado:** {company_data.get(challenge_column, '')}")
+                st.markdown(f"**Necessidade específica:** {company_data.get(need_column, '')}")
+                st.markdown(f"**Estágio do diagnóstico:** {company_data.get(stage_column, '')}")
+            
+            # Botão para gerar recomendações
+            if st.button("Gerar Recomendações"):
+                if not st.session_state.openai_api_key:
+                    st.warning("Por favor, configure a chave da API da OpenAI no menu lateral para gerar recomendações.")
+                else:
+                    with st.spinner("Gerando recomendações..."):
+                        recommendations = get_recommendations_for_company(
+                            company_data, 
+                            filtered_solutions,
+                            recommendation_system
+                        )
+                    
+                    if recommendations:
+                        st.markdown("#### Soluções Recomendadas")
+                        
+                        for rec in recommendations:
+                            # Busca informações adicionais da solução
+                            solution_name = rec["solution_name"]
+                            solution_data = filtered_solutions[filtered_solutions['Nome da solução'].str.contains(solution_name, case=False, na=False)]
+                            
+                            source = None
+                            link = None
+                            
+                            if not solution_data.empty:
+                                source = solution_data.iloc[0].get('Fonte', None)
+                                link = solution_data.iloc[0].get('Link', None)
+                            
+                            display_recommendation_card(
+                                rec["solution_name"], 
+                                rec["justification"],
+                                source=source,
+                                link=link
+                            )
+                    else:
+                        st.info("Não foi possível gerar recomendações para esta empresa. Tente novamente ou selecione outra empresa.")
+            
+            # Soluções já agendadas
+            st.markdown("#### Soluções disponíveis na região")
+            
+            if not filtered_solutions.empty:
+                # Determina quais colunas exibir
+                display_columns = ['Nome da solução', 'Modalidade', 'Tema', 'Fonte']
+                display_columns = [col for col in display_columns if col in filtered_solutions.columns]
+                
+                st.dataframe(
+                    filtered_solutions[display_columns],
+                    use_container_width=True
+                )
+            else:
+                st.info("Não há soluções disponíveis para esta região.")
+        
+        else:  # Buscar soluções para um problema específico
+            st.markdown("#### Buscar Soluções para um Problema Específico")
+            
+            # Campo de busca
+            search_query = st.text_area(
+                "Descreva o problema ou necessidade:",
+                height=100,
+                help="Descreva em detalhes o problema ou necessidade para o qual você busca soluções"
+            )
+            
+            # Botão de busca
+            if st.button("Buscar Soluções"):
+                if not search_query:
+                    st.warning("Por favor, descreva o problema ou necessidade.")
+                elif not st.session_state.openai_api_key:
+                    st.warning("Por favor, configure a chave da API da OpenAI no menu lateral para buscar soluções.")
+                else:
+                    with st.spinner("Buscando soluções..."):
+                        similar_solutions = search_similar_solutions(
+                            search_query,
+                            filtered_solutions,
+                            recommendation_system,
+                            max_results=5
+                        )
+                    
+                    if similar_solutions:
+                        st.markdown("#### Soluções Encontradas")
+                        
+                        for item in similar_solutions:
+                            solution = item["solution"]
+                            score = item["score"]
+                            explanation = item["explanation"]
+                            
+                            # Formata o título com a pontuação
+                            title = f"{solution.get('Nome da solução', '')} ({score}% de relevância)"
+                            
+                            display_recommendation_card(
+                                title,
+                                explanation,
+                                source=solution.get('Fonte', None),
+                                link=solution.get('Link', None)
+                            )
+                    else:
+                        st.info("Não foram encontradas soluções para este problema. Tente uma descrição diferente.")
     
     # Aba 3: Cadastro de Ações
     with tab3:
@@ -426,51 +692,78 @@ def main():
             
             with col1:
                 nome_solucao = st.text_input("Nome da solução")
-                modalidade = st.selectbox("Modalidade", ["Curso", "Consultoria", "Workshop", "Programa", "Evento"])
+                modalidade = st.selectbox("Modalidade", ["Curso", "Consultoria", "Workshop", "Programa", "Evento", "Palestra", "Curso Online"])
                 tema = st.text_input("Tema")
             
             with col2:
                 cidade = st.text_input("Cidade")
-                regional = st.selectbox("Regional", sorted(radar_data['Regional'].unique().tolist()))
+                regional = st.selectbox("Regional", sorted(radar_data[regional_column].unique().tolist()))
                 data_prevista = st.date_input("Data prevista")
             
+            descricao = st.text_area("Descrição", height=100)
             publico_alvo = st.text_input("Público-alvo")
-            consultor = st.text_input("Consultor responsável")
             
             submitted = st.form_submit_button("Cadastrar Solução")
         
         if submitted:
-            st.success(f"Solução '{nome_solucao}' cadastrada com sucesso!")
-            
-            # Simulação de análise de aderência
-            st.markdown("#### Análise de Aderência às Empresas da Regional")
-            
-            # Empresas da regional selecionada
-            regional_companies = filtered_radar[filtered_radar['Regional'] == regional]
-            
-            # Simulação de scores de aderência
-            adherence_scores = {
-                company: {
-                    "score": np.random.randint(1, 11),
-                    "justification": f"Análise de aderência para {company} baseada no tema '{tema}' e modalidade '{modalidade}'."
-                } for company in regional_companies['Nome da empresa']
-            }
-            
-            # Ordenar empresas por score de aderência
-            sorted_companies = sorted(adherence_scores.items(), key=lambda x: x[1]["score"], reverse=True)
-            
-            # Exibir resultados de aderência
-            for company, data in sorted_companies:
-                col1, col2 = st.columns([3, 1])
+            if not nome_solucao:
+                st.error("Por favor, informe o nome da solução.")
+            else:
+                # Cria um novo registro de solução
+                nova_solucao = {
+                    'Nome da solução': nome_solucao,
+                    'Modalidade': modalidade,
+                    'Tema': tema,
+                    'Cidade': cidade,
+                    'Regional': regional,
+                    'Data prevista': data_prevista.strftime('%Y-%m-%d'),
+                    'Descrição': descricao,
+                    'Público-alvo': publico_alvo,
+                    'Fonte': 'Cadastro Manual'
+                }
                 
-                with col1:
-                    st.markdown(f"**{company}**")
-                    st.markdown(data["justification"])
+                # Adiciona à lista de soluções
+                solutions_data = pd.concat([solutions_data, pd.DataFrame([nova_solucao])], ignore_index=True)
                 
-                with col2:
-                    st.markdown(f"Aderência: {display_adherence(data['score'])}", unsafe_allow_html=True)
+                st.success(f"Solução '{nome_solucao}' cadastrada com sucesso!")
                 
-                st.divider()
+                # Análise de aderência
+                if st.session_state.openai_api_key:
+                    st.markdown("#### Análise de Aderência às Empresas da Regional")
+                    
+                    with st.spinner("Analisando aderência..."):
+                        # Filtra empresas da regional selecionada
+                        regional_companies = filtered_radar[filtered_radar[regional_column] == regional]
+                        
+                        if len(regional_companies) > 0:
+                            # Limita a 10 empresas para não sobrecarregar a API
+                            sample_companies = regional_companies.head(10).to_dict('records')
+                            
+                            # Calcula aderência
+                            adherence_results = recommendation_system.calculate_solution_adherence(
+                                nova_solucao, 
+                                sample_companies
+                            )
+                            
+                            # Ordena empresas por score de aderência
+                            sorted_companies = sorted(adherence_results.items(), key=lambda x: x[1]["score"], reverse=True)
+                            
+                            # Exibe resultados de aderência
+                            for company, data in sorted_companies:
+                                col1, col2 = st.columns([3, 1])
+                                
+                                with col1:
+                                    st.markdown(f"**{company}**")
+                                    st.markdown(data["justification"])
+                                
+                                with col2:
+                                    st.markdown(f"Aderência: {display_adherence(data['score'])}", unsafe_allow_html=True)
+                                
+                                st.divider()
+                        else:
+                            st.info(f"Não há empresas cadastradas na regional {regional}.")
+                else:
+                    st.warning("Configure a chave da API da OpenAI no menu lateral para analisar a aderência da solução às empresas.")
     
     # Aba 4: Curadoria Inteligente
     with tab4:
@@ -479,68 +772,68 @@ def main():
         # Análise regional
         st.markdown(f"#### Análise da Regional: {selected_regional if selected_regional != 'Todas' else 'Todas as Regionais'}")
         
-        # Desafios mais comuns
-        top_challenges = filtered_radar['Desafio priorizado'].value_counts().reset_index()
-        top_challenges.columns = ['Desafio', 'Quantidade']
+        # Obtém dados agregados da regional
+        regional_data = data_integration.get_regional_data(selected_regional if selected_regional != 'Todas' else None)
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("##### Desafios mais comuns")
-            st.dataframe(top_challenges, use_container_width=True)
-        
-        with col2:
-            # Setores mais comuns
-            top_sectors = filtered_radar['Setor'].value_counts().reset_index()
-            top_sectors.columns = ['Setor', 'Quantidade']
-            
-            st.markdown("##### Setores mais comuns")
-            st.dataframe(top_sectors, use_container_width=True)
-        
-        # Simulação de sugestões de cursos (em produção, seria chamada a API da OpenAI)
-        st.markdown("#### Sugestões de Novas Soluções")
-        
-        # Sugestões simuladas
-        suggestions = [
-            {
-                "solution_name": "Programa de Transformação Digital para Comércio",
-                "modality": "Programa",
-                "justification": "Com base na alta concentração de empresas do setor de comércio e desafios relacionados a vendas, este programa ajudaria a digitalizar operações e aumentar competitividade."
-            },
-            {
-                "solution_name": "Workshop de Gestão da Inovação para Iniciantes",
-                "modality": "Workshop",
-                "justification": "Considerando o alto percentual de empresas com baixa maturidade em inovação, este workshop introduziria conceitos básicos e práticas simples de inovação."
-            },
-            {
-                "solution_name": "Consultoria em Otimização de Processos",
-                "modality": "Consultoria",
-                "justification": "Atenderia às necessidades de empresas dos setores industrial e de serviços que enfrentam desafios de produtividade e eficiência operacional."
-            },
-            {
-                "solution_name": "Curso de Marketing Digital para Pequenos Negócios",
-                "modality": "Curso",
-                "justification": "Alinhado com os desafios de vendas e marketing identificados, este curso ofereceria ferramentas práticas e acessíveis para empresas com recursos limitados."
-            },
-            {
-                "solution_name": "Jornada de Experiência do Cliente",
-                "modality": "Programa",
-                "justification": "Focado em melhorar a retenção e satisfação de clientes, este programa complementaria as estratégias de vendas e marketing, abordando um aspecto frequentemente negligenciado."
-            }
-        ]
-        
-        # Exibir sugestões
-        for i, sug in enumerate(suggestions):
-            col1, col2 = st.columns([3, 1])
+        if regional_data:
+            col1, col2 = st.columns(2)
             
             with col1:
-                st.markdown(f"**{i+1}. {sug['solution_name']}** ({sug['modality']})")
-                st.markdown(sug["justification"])
+                # Desafios mais comuns
+                st.markdown("##### Desafios mais comuns")
+                challenges_df = pd.DataFrame(regional_data['top_challenges'])
+                if not challenges_df.empty:
+                    st.dataframe(challenges_df, use_container_width=True)
+                else:
+                    st.info("Não há dados de desafios disponíveis.")
             
             with col2:
-                st.button(f"Adicionar ao Plano #{i+1}", key=f"add_suggestion_{i}")
+                # Setores mais comuns
+                st.markdown("##### Setores mais comuns")
+                sectors_df = pd.DataFrame(regional_data['top_sectors'])
+                if not sectors_df.empty:
+                    st.dataframe(sectors_df, use_container_width=True)
+                else:
+                    st.info("Não há dados de setores disponíveis.")
             
-            st.divider()
+            # Botão para gerar sugestões de cursos
+            if st.button("Gerar Sugestões de Novas Soluções"):
+                if not st.session_state.openai_api_key:
+                    st.warning("Por favor, configure a chave da API da OpenAI no menu lateral para gerar sugestões.")
+                else:
+                    with st.spinner("Gerando sugestões de novas soluções..."):
+                        # Obtém soluções já agendadas na regional
+                        if 'Regional' in solutions_data.columns:
+                            scheduled_solutions = solutions_data[
+                                solutions_data['Regional'] == selected_regional
+                            ].to_dict('records') if selected_regional != "Todas" else []
+                        else:
+                            scheduled_solutions = []
+                        
+                        # Gera sugestões
+                        suggestions = recommendation_system.suggest_new_courses(
+                            regional_data,
+                            scheduled_solutions
+                        )
+                    
+                    if suggestions:
+                        st.markdown("#### Sugestões de Novas Soluções")
+                        
+                        for i, sug in enumerate(suggestions):
+                            col1, col2 = st.columns([3, 1])
+                            
+                            with col1:
+                                st.markdown(f"**{i+1}. {sug['solution_name']}** ({sug['modality']})")
+                                st.markdown(sug["justification"])
+                            
+                            with col2:
+                                st.button(f"Adicionar ao Plano #{i+1}", key=f"add_suggestion_{i}")
+                            
+                            st.divider()
+                    else:
+                        st.info("Não foi possível gerar sugestões para esta regional. Tente novamente ou selecione outra regional.")
+        else:
+            st.warning("Não foi possível obter dados agregados da regional selecionada.")
 
 # Verificar se o arquivo de logo existe, caso contrário, criar um placeholder
 def check_logo_file():

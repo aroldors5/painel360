@@ -1,7 +1,8 @@
-import openai
 import pandas as pd
+import numpy as np
 import re
 import os
+import openai
 from typing import List, Dict, Any
 
 class RecommendationSystem:
@@ -69,19 +70,20 @@ class RecommendationSystem:
             str: Prompt formatado para a API da OpenAI
         """
         # Extrai informações relevantes da empresa
-        company_name = company_data.get('Nome da empresa', 'Empresa')
-        challenge = company_data.get('Desafio priorizado', '')
+        company_name = company_data.get('Nome da empresa', company_data.get('Nome Empresa', 'Empresa'))
+        challenge = company_data.get('Desafio priorizado', company_data.get('Categoria do Problema', ''))
+        specific_need = company_data.get('Necessidade específica', company_data.get('Descrição do Problema', ''))
         sector = company_data.get('Setor', '')
-        maturity = company_data.get('Maturidade em inovação', '')
-        specific_need = company_data.get('Necessidade específica', '')
-        stage = company_data.get('Estágio do diagnóstico', '')
-        city = company_data.get('Cidade', '')
-        regional = company_data.get('Regional', '')
+        maturity = company_data.get('Maturidade em inovação', company_data.get('Média diagnóstico inicial', ''))
+        stage = company_data.get('Estágio do diagnóstico', str(company_data.get('Encontro', '')))
+        city = company_data.get('Cidade', company_data.get('Município', ''))
+        regional = company_data.get('Regional', company_data.get('Escritório Regional', ''))
         
-        # Formata as soluções disponíveis
+        # Formata as soluções disponíveis (limitado a 20 para não sobrecarregar o prompt)
+        solutions_sample = available_solutions[:20] if len(available_solutions) > 20 else available_solutions
         solutions_text = "\n".join([
-            f"- {sol.get('Nome da solução', '')}: {sol.get('Modalidade', '')} | {sol.get('Tema', '')}"
-            for sol in available_solutions
+            f"- {sol.get('Nome da solução', '')}: {sol.get('Modalidade', '')} | {sol.get('Tema', '')} | {sol.get('Descrição', '')[:100]}..."
+            for sol in solutions_sample
         ])
         
         # Formata as soluções já agendadas (se houver)
@@ -105,7 +107,7 @@ class RecommendationSystem:
         - Necessidade específica: {specific_need}
         - Estágio do diagnóstico: {stage}
         
-        SOLUÇÕES DISPONÍVEIS:
+        SOLUÇÕES DISPONÍVEIS (amostra das mais relevantes):
         {solutions_text}
         
         {scheduled_text}
@@ -138,7 +140,9 @@ class RecommendationSystem:
             list: Lista de recomendações com justificativas
         """
         # Gera uma chave única para o cache
-        cache_key = f"{company_data.get('Nome da empresa', '')}-{company_data.get('Desafio priorizado', '')}"
+        company_name = company_data.get('Nome da empresa', company_data.get('Nome Empresa', ''))
+        challenge = company_data.get('Desafio priorizado', company_data.get('Categoria do Problema', ''))
+        cache_key = f"{company_name}-{challenge}"
         
         # Verifica se já existe no cache
         if cache_key in self.recommendation_cache:
@@ -253,6 +257,7 @@ class RecommendationSystem:
         solution_name = solution.get('Nome da solução', '')
         solution_theme = solution.get('Tema', '')
         solution_modality = solution.get('Modalidade', '')
+        solution_description = solution.get('Descrição', '')
         
         # Gera o prompt para a API
         prompt = f"""
@@ -262,6 +267,7 @@ class RecommendationSystem:
         - Nome: {solution_name}
         - Tema: {solution_theme}
         - Modalidade: {solution_modality}
+        - Descrição: {solution_description}
         
         Para cada empresa abaixo, avalie a aderência desta solução em uma escala de 0 a 10, onde:
         - 0-3: Baixa aderência (a solução não atende às necessidades da empresa)
@@ -276,11 +282,11 @@ class RecommendationSystem:
         # Adiciona dados de até 10 empresas ao prompt para não sobrecarregar
         companies_sample = companies_data[:10]
         for i, company in enumerate(companies_sample):
-            company_name = company.get('Nome da empresa', f'Empresa {i+1}')
-            challenge = company.get('Desafio priorizado', '')
+            company_name = company.get('Nome da empresa', company.get('Nome Empresa', f'Empresa {i+1}'))
+            challenge = company.get('Desafio priorizado', company.get('Categoria do Problema', ''))
+            specific_need = company.get('Necessidade específica', company.get('Descrição do Problema', ''))
             sector = company.get('Setor', '')
-            maturity = company.get('Maturidade em inovação', '')
-            specific_need = company.get('Necessidade específica', '')
+            maturity = company.get('Maturidade em inovação', company.get('Média diagnóstico inicial', ''))
             
             prompt += f"""
             Empresa {i+1}: {company_name}
@@ -313,7 +319,7 @@ class RecommendationSystem:
             
             # Processa o texto para extrair as aderências
             for i, company in enumerate(companies_sample):
-                company_name = company.get('Nome da empresa', f'Empresa {i+1}')
+                company_name = company.get('Nome da empresa', company.get('Nome Empresa', f'Empresa {i+1}'))
                 
                 # Padrão para extrair a pontuação e justificativa
                 pattern = rf"Empresa\s+{i+1}.*?:\s+(\d+)/10\s+-\s+(.*?)(?=Empresa|$)"
@@ -335,7 +341,7 @@ class RecommendationSystem:
             
         except Exception as e:
             print(f"Erro ao calcular aderência: {e}")
-            return {company.get('Nome da empresa', f'Empresa {i+1}'): {"score": 0, "justification": "Erro ao calcular."} 
+            return {company.get('Nome da empresa', company.get('Nome Empresa', f'Empresa {i+1}')): {"score": 0, "justification": "Erro ao calcular."} 
                    for i, company in enumerate(companies_sample)}
     
     def suggest_new_courses(self, regional_data, scheduled_solutions):
@@ -356,12 +362,12 @@ class RecommendationSystem:
         
         # Formata os desafios mais comuns
         challenges_text = "\n".join([
-            f"- {challenge}: {count} empresas" for challenge, count in top_challenges
+            f"- {challenge['challenge']}: {challenge['count']} empresas" for challenge in top_challenges[:10]
         ])
         
         # Formata os setores mais comuns
         sectors_text = "\n".join([
-            f"- {sector}: {count} empresas" for sector, count in top_sectors
+            f"- {sector['sector']}: {sector['count']} empresas" for sector in top_sectors[:10]
         ])
         
         # Formata a distribuição de maturidade
@@ -369,10 +375,11 @@ class RecommendationSystem:
             f"- {maturity}: {count} empresas" for maturity, count in maturity_distribution.items()
         ])
         
-        # Formata as soluções já agendadas
+        # Formata as soluções já agendadas (limitado a 20 para não sobrecarregar o prompt)
+        scheduled_sample = scheduled_solutions[:20] if len(scheduled_solutions) > 20 else scheduled_solutions
         scheduled_text = "\n".join([
             f"- {sol.get('Nome da solução', '')}: {sol.get('Modalidade', '')} | {sol.get('Tema', '')}"
-            for sol in scheduled_solutions
+            for sol in scheduled_sample
         ])
         
         # Gera o prompt para a API
@@ -487,4 +494,91 @@ class RecommendationSystem:
             
         except Exception as e:
             print(f"Erro ao sugerir novos cursos: {e}")
+            return []
+    
+    def find_similar_solutions(self, query, solutions_data, max_results=5):
+        """
+        Encontra soluções similares a uma consulta usando a API da OpenAI.
+        
+        Args:
+            query (str): Consulta de texto (problema, necessidade, etc.)
+            solutions_data (list): Lista de soluções disponíveis
+            max_results (int): Número máximo de resultados a retornar
+            
+        Returns:
+            list: Lista de soluções similares com pontuação
+        """
+        if not query or not solutions_data:
+            return []
+        
+        # Limita o número de soluções para não sobrecarregar o prompt
+        solutions_sample = solutions_data[:50] if len(solutions_data) > 50 else solutions_data
+        
+        # Gera o prompt para a API
+        prompt = f"""
+        Você é um especialista em encontrar soluções do Sebrae que correspondam às necessidades das empresas.
+        
+        CONSULTA:
+        {query}
+        
+        SOLUÇÕES DISPONÍVEIS:
+        """
+        
+        for i, solution in enumerate(solutions_sample):
+            name = solution.get('Nome da solução', '')
+            modality = solution.get('Modalidade', '')
+            theme = solution.get('Tema', '')
+            description = solution.get('Descrição', '')[:100]  # Limita o tamanho da descrição
+            
+            prompt += f"{i+1}. {name} ({modality} - {theme}): {description}\n"
+        
+        prompt += """
+        TAREFA:
+        Encontre as soluções mais relevantes para a consulta acima. Para cada solução relevante, forneça:
+        1. O número da solução
+        2. Uma pontuação de relevância de 0 a 100
+        3. Uma breve explicação de por que a solução é relevante
+        
+        Formato da resposta:
+        - Solução X: [Pontuação]/100 - [Explicação]
+        """
+        
+        try:
+            # Faz a chamada para a API da OpenAI
+            response = openai.ChatCompletion.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "Você é um especialista em soluções do Sebrae."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.5,
+                max_tokens=1000
+            )
+            
+            # Extrai o texto da resposta
+            result_text = response.choices[0].message.content.strip()
+            
+            # Processa o texto para extrair as soluções similares
+            similar_solutions = []
+            pattern = r'Solução\s+(\d+):\s+(\d+)/100\s+-\s+(.*?)(?=Solução\s+\d+:|$)'
+            matches = re.findall(pattern, result_text, re.DOTALL)
+            
+            for match in matches:
+                solution_idx, score, explanation = match
+                idx = int(solution_idx) - 1
+                
+                if 0 <= idx < len(solutions_sample):
+                    solution = solutions_sample[idx]
+                    similar_solutions.append({
+                        "solution": solution,
+                        "score": int(score),
+                        "explanation": explanation.strip()
+                    })
+            
+            # Ordena por pontuação e limita o número de resultados
+            similar_solutions.sort(key=lambda x: x["score"], reverse=True)
+            return similar_solutions[:max_results]
+            
+        except Exception as e:
+            print(f"Erro ao encontrar soluções similares: {e}")
             return []
