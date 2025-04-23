@@ -189,8 +189,8 @@ def load_data():
     data_integration = DataIntegration()
     
     # Carrega e processa os dados
-    radar_data = data_integration.load_radar_data_from_excel('/home/ubuntu/upload/')
-    solutions_data = data_integration.load_solutions_from_excel('/home/ubuntu/upload/')
+radar_data = data_integration.load_radar_data_from_excel('radar.xlsx')
+solutions_data = data_integration.load_solutions_from_excel('solucoes.xlsx')
     
     # Coleta soluções da web (opcional, pode ser comentado para desenvolvimento mais rápido)
     try:
