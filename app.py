@@ -13,7 +13,7 @@ import time
 
 # Importando os módulos personalizados
 from data_integration import DataIntegration
-from recommendation_system_updated import RecommendationSystem
+from recommendation_system import RecommendationSystem
 from sebrae_scraper import SebraeScraper
 
 # Configuração da página
